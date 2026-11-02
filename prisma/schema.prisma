@@ -1,0 +1,280 @@
+// Rhinestone Jewellers — Prisma schema
+// PostgreSQL on Aiven, managed via Prisma ORM.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Auth
+// ──────────────────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  password  String
+  role      Role     @default(ADMIN)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum Role {
+  ADMIN
+  STAFF
+  VIEWER
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Scrollytelling scenes (the heart of the home page)
+// ──────────────────────────────────────────────────────────────────────
+
+model Scene {
+  id            String       @id @default(cuid())
+  order         Int          @default(0)
+  title         String
+  paragraph     String       @db.Text
+  mediaType     MediaType    @default(PHOTO)
+  mediaUrl      String?
+  animationType AnimationType @default(FADE)
+  isHero        Boolean      @default(false)
+  isPublished   Boolean      @default(true)
+  // Optional metadata for accurate descriptive copy (never poetic)
+  material      String?
+  weight        String?
+  dimensions    String?
+  // For 3D procedural scenes (when mediaType = THREE_PROCEDURAL)
+  proceduralType String?
+  // For Sketchfab embeds (paste embed code in admin, no upload needed)
+  embedCode     String?      @db.Text
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([order])
+}
+
+enum MediaType {
+  PHOTO
+  VIDEO
+  THREE_GLB
+  THREE_PROCEDURAL
+  THREE_EMBED
+  TEXT_ONLY
+}
+
+enum AnimationType {
+  FADE
+  SLIDE_UP
+  SLIDE_LEFT
+  PARALLAX
+  ZOOM
+  REVEAL
+  ROTATE_3D
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Collections & products
+// ──────────────────────────────────────────────────────────────────────
+
+model Collection {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  name        String
+  description String?   @db.Text
+  coverImage  String?
+  order       Int       @default(0)
+  isPublished Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  products    Product[]
+}
+
+model Product {
+  id             String      @id @default(cuid())
+  collectionId   String
+  collection     Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  slug           String      @unique
+  name           String
+  description    String?     @db.Text
+  images         String[]    @default([])
+  // Pricing model: FIXED = admin enters priceEur directly; GOLD_WEIGHTED = computed
+  pricingModel   PricingType @default(FIXED)
+  priceEur       Decimal?    @db.Decimal(12, 2)
+  // Gold-weighted pricing inputs
+  goldWeightG    Decimal?    @db.Decimal(10, 3)
+  goldPurity     Int?        // 18, 22, 24 — used as karat
+  makingCharge   Decimal?    @db.Decimal(12, 2)
+  // Inventory
+  stock          Int         @default(0)
+  isPublished    Boolean     @default(true)
+  featured       Boolean     @default(false)
+  createdAt      DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([collectionId])
+}
+
+enum PricingType {
+  FIXED
+  GOLD_WEIGHTED
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Gallery & testimonials
+// ──────────────────────────────────────────────────────────────────────
+
+model GalleryItem {
+  id        String      @id @default(cuid())
+  type      MediaType   @default(PHOTO)
+  url       String
+  caption   String?
+  order     Int         @default(0)
+  isPublished Boolean   @default(true)
+  createdAt DateTime    @default(now())
+}
+
+model Testimonial {
+  id          String   @id @default(cuid())
+  customerName String
+  location    String?
+  quote       String   @db.Text
+  rating      Int      @default(5)
+  image       String?
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Site settings (one row — id="site")
+// ──────────────────────────────────────────────────────────────────────
+
+model SiteSetting {
+  id            String   @id @default("site")
+  brandName     String   @default("Rhinestone Jewellers")
+  tagline       String   @default("Dublin's Rhinestone House")
+  description   String?  @db.Text
+  musicUrl      String?
+  heroVideoUrl  String?
+  logoUrl      String?
+  email         String   @default("hello@rhinestonejewellers.ie")
+  phone         String?
+  whatsapp      String?
+  address       String?
+  city          String   @default("Dublin")
+  country       String   @default("Ireland")
+  instagram     String?
+  facebook      String?
+  tiktok        String?
+  // Currency
+  baseCurrency  String   @default("EUR")
+  // AI tone
+  aiTone        String   @default("accurate, descriptive, factual — never poetic")
+  updatedAt     DateTime @updatedAt
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Gold rate cache (refreshed every 6h via API, admin can override)
+// ──────────────────────────────────────────────────────────────────────
+
+model GoldRate {
+  id              String   @id @default("global")
+  // price per troy ounce in USD
+  priceUsdPerOz   Decimal  @db.Decimal(12, 2)
+  priceEurPerOz   Decimal  @db.Decimal(12, 2)
+  priceGbpPerOz   Decimal  @db.Decimal(12, 2)
+  priceAedPerOz   Decimal  @db.Decimal(12, 2)
+  pricePkrPerOz   Decimal  @db.Decimal(12, 2)
+  source          String   @default("goldapi.io")
+  isOverridden    Boolean  @default(false)
+  fetchedAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Contact inquiries + AI routing/autoreply
+// ──────────────────────────────────────────────────────────────────────
+
+model Inquiry {
+  id           String         @id @default(cuid())
+  name         String
+  email        String
+  phone        String?
+  message      String         @db.Text
+  category     InquiryCategory @default(GENERAL)
+  // AI fields
+  aiRouting    String?
+  aiReplyDraft String?        @db.Text
+  // Admin workflow
+  isReplied    Boolean        @default(false)
+  isRead       Boolean        @default(false)
+  adminReply   String?        @db.Text
+  createdAt    DateTime       @default(now())
+  repliedAt    DateTime?
+}
+
+enum InquiryCategory {
+  GENERAL
+  RETAIL
+  WHOLESALE
+  PRESS
+  APPOINTMENT
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Pages (About, FAQ, etc.) — rich text editable via admin
+// ──────────────────────────────────────────────────────────────────────
+
+model Page {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  title     String
+  content   String   @db.Text
+  updatedAt DateTime @updatedAt
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Live chat — visitor conversations with the AI sales bot
+// Admin sees every conversation in /admin/chat
+// ──────────────────────────────────────────────────────────────────────
+
+model ChatConversation {
+  id           String        @id @default(cuid())
+  // Anonymous visitor ID (stored in their localStorage, persists across sessions)
+  visitorId    String
+  // Optional: if the bot captures name/email mid-chat
+  customerName  String?
+  customerEmail String?
+  customerPhone String?
+  // Bot's internal read of the conversation
+  status       String        @default("open") // open | won | lost
+  // Short tag the bot can set on its own (e.g. "engagement ring", "general chat", "wholesale enquiry")
+  topic        String?
+  // Bot's private notes for the admin (e.g. "Customer compared to Tiffany, asked for €100 discount, justified with hand-set argument")
+  adminNotes   String?       @db.Text
+  messages     ChatMessage[]
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([updatedAt])
+  @@index([status])
+}
+
+model ChatMessage {
+  id             String           @id @default(cuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  // "user" | "assistant" | "system"
+  role           String
+  content        String           @db.Text
+  // Bot tags each of its own messages so admin can see at a glance:
+  // "rapport", "discovery", "recommendation", "comparison", "margin_defence", "closing", "congratulations", "off_topic"
+  tag            String?
+  createdAt      DateTime         @default(now())
+
+  @@index([conversationId])
+}
